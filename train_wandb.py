@@ -33,7 +33,6 @@ from losses import (
   kl_loss
 )
 from mel_processing import mel_spectrogram_torch, spec_to_mel_torch
-from text.symbols import symbols
 from text import text_to_sequence
 
 import matplotlib.pyplot as plt
@@ -58,10 +57,11 @@ def main():
 
   n_gpus = torch.cuda.device_count()
   os.environ['MASTER_ADDR'] = 'localhost'
-  os.environ['MASTER_PORT'] = '8000'
+  os.environ['MASTER_PORT'] = '9393'
 
   hps = utils.get_hparams()
-  mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
+  # mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
+  run(rank=0, n_gpus=n_gpus, hps=hps)
 #   run(0, 1, hps)
 
 
@@ -95,7 +95,8 @@ def run(rank, n_gpus, hps):
       eval_loader = DataLoader(eval_dataset, num_workers=2, shuffle=False,
           batch_size=hps.train.batch_size, pin_memory=True,
           drop_last=False, collate_fn=collate_fn)
-
+    with open(os.path.join(hps.model_dir,"vocab.txt"), "r") as f:
+      symbols=[syb.replace('\n','') for syb in f.readlines()]
     net_g = SynthesizerTrn(
         len(symbols),
         hps.data.filter_length // 2 + 1,
@@ -116,30 +117,30 @@ def run(rank, n_gpus, hps):
     net_d = DDP(net_d, device_ids=[rank])
     wandb.watch([net_g, net_d], log='all')
 
-    try:
-      _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g)
-      _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d, optim_d)
-      global_step = (epoch_str - 1) * len(train_loader)
-    except:
-      if hps.train.finetune:
-        print("loading pretrained generator")
-        generator_state_dict = torch.load('./pretrained/generator.pth')
-        if hasattr(net_g, 'module'):
-          net_g.module.load_state_dict(generator_state_dict['model'])
-          print("pretrained generator loaded")
-        else:
-          net_g.load_state_dict(generator_state_dict['model'])
-          print("pretrained generator loaded")
+    # try:
+    _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g)
+    _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d, optim_d)
+    global_step = (epoch_str - 1) * len(train_loader)
+    # except:
+    #   if hps.train.finetune:
+    #     print("loading pretrained generator")
+    #     generator_state_dict = torch.load('./pretrained/generator.pth')
+    #     if hasattr(net_g, 'module'):
+    #       net_g.module.load_state_dict(generator_state_dict['model'])
+    #       print("pretrained generator loaded")
+    #     else:
+    #       net_g.load_state_dict(generator_state_dict['model'])
+    #       print("pretrained generator loaded")
 
-        print("loading pretrained discriminator")
-        if hasattr(net_d, 'module'):
-          net_d.module.load_state_dict(torch.load('./pretrained/discriminator.pth'))
-          print("pretrained discriminator loaded")
-        else:
-          net_d.load_state_dict(torch.load('./pretrained/discriminator.pth'))
-          print("pretrained discriminator loaded")
-      epoch_str = 1
-      global_step = 0
+    #     print("loading pretrained discriminator")
+    #     if hasattr(net_d, 'module'):
+    #       net_d.module.load_state_dict(torch.load('./pretrained/discriminator.pth'))
+    #       print("pretrained discriminator loaded")
+    #     else:
+    #       net_d.load_state_dict(torch.load('./pretrained/discriminator.pth'))
+    #       print("pretrained discriminator loaded")
+    #   epoch_str = 1
+    #   global_step = 0
 
     scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str-2)
     scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str-2)
@@ -276,7 +277,7 @@ def train_and_evaluate(rank, epoch, hps, nets, optims, schedulers, scaler, loade
             x_tst_lengths = torch.LongTensor([stn_tst.size(0)])
             audio = net_g.module.infer(x_tst.cuda(0), x_tst_lengths.cuda(0), noise_scale=.667, noise_scale_w=0.8, length_scale=1)[0][0,0].data.float().cpu().numpy()
             wandb.log({"epoch":epoch, "global_step":global_step, "inferred_audio" : wandb.Audio(audio, sample_rate=hps.data.sampling_rate, caption='inference_test')})
-        net_g.train(
+        net_g.train()
         utils.save_checkpoint(net_g, optim_g, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "G_{}.pth".format(global_step)))
         utils.save_checkpoint(net_d, optim_d, hps.train.learning_rate, epoch, os.path.join(hps.model_dir, "D_{}.pth".format(global_step)))
     global_step += 1

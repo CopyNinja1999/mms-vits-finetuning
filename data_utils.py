@@ -9,7 +9,7 @@ import commons
 from mel_processing import spectrogram_torch
 from utils import load_wav_to_torch, load_filepaths_and_text
 from text import text_to_sequence, cleaned_text_to_sequence
-
+import librosa
 
 class TextAudioLoader(torch.utils.data.Dataset):
     """
@@ -26,8 +26,9 @@ class TextAudioLoader(torch.utils.data.Dataset):
         self.hop_length     = hparams.hop_length 
         self.win_length     = hparams.win_length
         self.sampling_rate  = hparams.sampling_rate 
-
-        self.cleaned_text = getattr(hparams, "cleaned_text", False)
+        self.vocab_path     = hparams.vocab_path
+        # self.cleaned_text = getattr(hparams, "cleaned_text", False)
+        self.cleaned_text=False
 
         self.add_blank = hparams.add_blank
         self.min_text_len = getattr(hparams, "min_text_len", 1)
@@ -58,8 +59,14 @@ class TextAudioLoader(torch.utils.data.Dataset):
     def get_audio_text_pair(self, audiopath_and_text):
         # separate filename and text
         audiopath, text = audiopath_and_text[0], audiopath_and_text[1]
-        text = self.get_text(text)
+        
+        try:
+            text = self.get_text(text,self.vocab_path)
+        except KeyError:
+            print('error text:',text)
+            # raise KeyError
         spec, wav = self.get_audio(audiopath)
+        # print(text,text.shape,spec.shape,wav.shape)
         return (text, spec, wav)
 
     def get_audio(self, filename):
@@ -67,6 +74,8 @@ class TextAudioLoader(torch.utils.data.Dataset):
         if sampling_rate != self.sampling_rate:
             raise ValueError("{} {} SR doesn't match target {} SR".format(
                 sampling_rate, self.sampling_rate))
+            # audio=torch.FloatTensor(librosa.resample(audio.numpy(), sampling_rate, self.sampling_rate))
+            
         audio_norm = audio / self.max_wav_value
         audio_norm = audio_norm.unsqueeze(0)
         spec_filename = filename.replace(".wav", ".spec.pt")
@@ -80,11 +89,11 @@ class TextAudioLoader(torch.utils.data.Dataset):
             torch.save(spec, spec_filename)
         return spec, audio_norm
 
-    def get_text(self, text):
+    def get_text(self, text, vocab_path):
         if self.cleaned_text:
             text_norm = cleaned_text_to_sequence(text)
         else:
-            text_norm = text_to_sequence(text, self.text_cleaners)
+            text_norm = text_to_sequence(text, self.text_cleaners, vocab_path)
         if self.add_blank:
             text_norm = commons.intersperse(text_norm, 0)
         text_norm = torch.LongTensor(text_norm)

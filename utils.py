@@ -16,6 +16,7 @@ logger = logging
 
 def load_checkpoint(checkpoint_path, model, optimizer=None):
   assert os.path.isfile(checkpoint_path)
+  import ipdb;ipdb.set_trace()
   checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
   iteration = checkpoint_dict['iteration']
   learning_rate = checkpoint_dict['learning_rate']
@@ -131,6 +132,9 @@ def plot_alignment_to_numpy(alignment, info=None):
 
 def load_wav_to_torch(full_path):
   sampling_rate, data = read(full_path)
+  # for stereo wavs
+  if data.shape[-1] == 2:
+    data=data[:,0].reshape(-1)
   return torch.FloatTensor(data.astype(np.float32)), sampling_rate
 
 
@@ -148,7 +152,7 @@ def get_hparams(init=True):
                       help='Model name')
   
   args = parser.parse_args()
-  model_dir = os.path.join("./logs", args.model)
+  model_dir = os.path.join("./models", args.model)
 
   if not os.path.exists(model_dir):
     os.makedirs(model_dir)
@@ -167,6 +171,8 @@ def get_hparams(init=True):
   
   hparams = HParams(**config)
   hparams.model_dir = model_dir
+  vocab_path = os.path.join(model_dir, "vocab.txt")
+  hparams.data.vocab_path = vocab_path
   return hparams
 
 
@@ -223,7 +229,11 @@ def get_logger(model_dir, filename="train.log"):
   h.setFormatter(formatter)
   logger.addHandler(h)
   return logger
-
+def initialize_optimizer(optimizer):
+  for i, group in enumerate(optimizer.param_groups):
+    if 'initial_lr' not in group:
+        group.setdefault('initial_lr', group['lr'])
+  return optimizer
 
 class HParams():
   def __init__(self, **kwargs):

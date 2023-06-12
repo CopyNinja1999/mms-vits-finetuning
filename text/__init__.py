@@ -1,14 +1,22 @@
+'''
+Author: zhangzheyu zheyuzhang527@gmail.com
+Date: 2023-06-06 15:10:30
+LastEditors: zhangzheyu zheyuzhang527@gmail.com
+LastEditTime: 2023-06-12 15:28:36
+FilePath: /mms/efficient-vits-finetuning/text/__init__.py
+Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+'''
 """ from https://github.com/keithito/tacotron """
 from text import cleaners
-from text.symbols import symbols
+from text.symbols import TextMapper
 
 
 # Mappings from symbol to numeric ID and vice versa:
-_symbol_to_id = {s: i for i, s in enumerate(symbols)}
-_id_to_symbol = {i: s for i, s in enumerate(symbols)}
+_symbol_to_id = {}
+_id_to_symbol = {}
 
 
-def text_to_sequence(text, cleaner_names):
+def text_to_sequence(text, cleaner_names, vocab_path):
   '''Converts a string of text to a sequence of IDs corresponding to the symbols in the text.
     Args:
       text: string to convert to a sequence
@@ -17,7 +25,11 @@ def text_to_sequence(text, cleaner_names):
       List of integers corresponding to the symbols in the text
   '''
   sequence = []
-
+  text_mapper=TextMapper(vocab_path)
+  _symbol_to_id=text_mapper._symbol_to_id
+  _id_to_symbol=text_mapper._id_to_symbol
+  text=text.lower()
+  text=text_mapper.filter_oov(text)
   clean_text = _clean_text(text, cleaner_names)
   for symbol in clean_text:
     symbol_id = _symbol_to_id[symbol]
