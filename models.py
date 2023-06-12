@@ -364,16 +364,22 @@ class DiscriminatorS(torch.nn.Module):
 
 
 class MultiPeriodDiscriminator(torch.nn.Module):
+    # def __init__(self, use_spectral_norm=False):
+    #     super(MultiPeriodDiscriminator, self).__init__()
+    #     self.discriminators = nn.ModuleList([
+    #         DiscriminatorP(2),
+    #         DiscriminatorP(3),
+    #         DiscriminatorP(5),
+    #         DiscriminatorP(7),
+    #         DiscriminatorP(11),
+    #     ])
     def __init__(self, use_spectral_norm=False):
         super(MultiPeriodDiscriminator, self).__init__()
-        self.discriminators = nn.ModuleList([
-            DiscriminatorP(2),
-            DiscriminatorP(3),
-            DiscriminatorP(5),
-            DiscriminatorP(7),
-            DiscriminatorP(11),
-        ])
+        periods = [2,3,5,7,11]
 
+        discs = [DiscriminatorS(use_spectral_norm=use_spectral_norm)]
+        discs = discs + [DiscriminatorP(i, use_spectral_norm=use_spectral_norm) for i in periods]
+        self.discriminators = nn.ModuleList(discs)
     def forward(self, y, y_hat):
         y_d_rs = []
         y_d_gs = []

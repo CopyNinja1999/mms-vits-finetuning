@@ -12,7 +12,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
-import bitsandbytes as bnb
+# import bitsandbytes as bnb
 
 import commons
 import utils
@@ -32,7 +32,7 @@ from losses import (
   kl_loss
 )
 from mel_processing import mel_spectrogram_torch, spec_to_mel_torch
-from text.symbols import symbols
+from text.symbols import TextMapper
 
 
 torch.backends.cudnn.benchmark = True
@@ -45,10 +45,11 @@ def main():
 
   n_gpus = torch.cuda.device_count()
   os.environ['MASTER_ADDR'] = 'localhost'
-  os.environ['MASTER_PORT'] = '8000'
+  os.environ['MASTER_PORT'] = '9393'
 
   hps = utils.get_hparams()
   mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
+  # run(rank=0, n_gpus=n_gpus, hps=hps)
 
 
 def run(rank, n_gpus, hps):
@@ -80,19 +81,20 @@ def run(rank, n_gpus, hps):
     eval_loader = DataLoader(eval_dataset, num_workers=2, shuffle=False,
         batch_size=hps.train.batch_size, pin_memory=True,
         drop_last=False, collate_fn=collate_fn)
-
+  with open(os.path.join(hps.model_dir,"vocab.txt"), "r") as f:
+    symbols=[syb.replace('\n','') for syb in f.readlines()]
   net_g = SynthesizerTrn(
       len(symbols),
       hps.data.filter_length // 2 + 1,
       hps.train.segment_size // hps.data.hop_length,
       **hps.model).cuda(rank)
   net_d = MultiPeriodDiscriminator(hps.model.use_spectral_norm).cuda(rank)
-  optim_g = bnb.optim.AdamW(
+  optim_g = torch.optim.AdamW(
       net_g.parameters(), 
       hps.train.learning_rate, 
       betas=hps.train.betas, 
       eps=hps.train.eps)
-  optim_d = bnb.optim.AdamW(
+  optim_d = torch.optim.AdamW(
       net_d.parameters(),
       hps.train.learning_rate, 
       betas=hps.train.betas, 
@@ -100,30 +102,31 @@ def run(rank, n_gpus, hps):
   net_g = DDP(net_g, device_ids=[rank])
   net_d = DDP(net_d, device_ids=[rank])
 
-  try:
-    _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g)
-    _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d, optim_d)
-    global_step = (epoch_str - 1) * len(train_loader)
-  except:
-    if hps.train.finetune:
-      print("loading pretrained generator")
-      generator_state_dict = torch.load('./pretrained/generator.pth')
-      if hasattr(net_g, 'module'):
-        net_g.module.load_state_dict(generator_state_dict['model'])
-        print("pretrained generator loaded")
-      else:
-        net_g.load_state_dict(generator_state_dict['model'])
-        print("pretrained generator loaded")
+  # try:
+  _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "G_*.pth"), net_g, optim_g)
+  _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "D_*.pth"), net_d, optim_d)
+  # global_step = (epoch_str - 1) * len(train_loader)
+  global_step=0
+  # except:
+  #   if hps.train.finetune:
+  #     print("loading pretrained generator")
+  #     generator_state_dict = torch.load('./pretrained/generator.pth')
+  #     if hasattr(net_g, 'module'):
+  #       net_g.module.load_state_dict(generator_state_dict['model'])
+  #       print("pretrained generator loaded")
+  #     else:
+  #       net_g.load_state_dict(generator_state_dict['model'])
+  #       print("pretrained generator loaded")
 
-      print("loading pretrained discriminator")
-      if hasattr(net_d, 'module'):
-        net_d.module.load_state_dict(torch.load('./pretrained/discriminator.pth'))
-        print("pretrained discriminator loaded")
-      else:
-        net_d.load_state_dict(torch.load('./pretrained/discriminator.pth'))
-        print("pretrained discriminator loaded")
-    epoch_str = 1
-    global_step = 0
+  #     print("loading pretrained discriminator")
+  #     if hasattr(net_d, 'module'):
+  #       net_d.module.load_state_dict(torch.load('./pretrained/discriminator.pth'))
+  #       print("pretrained discriminator loaded")
+  #     else:
+  #       net_d.load_state_dict(torch.load('./pretrained/discriminator.pth'))
+  #       print("pretrained discriminator loaded")
+    # epoch_str = 1
+    # global_step = 0
 
   scheduler_g = torch.optim.lr_scheduler.ExponentialLR(optim_g, gamma=hps.train.lr_decay, last_epoch=epoch_str-2)
   scheduler_d = torch.optim.lr_scheduler.ExponentialLR(optim_d, gamma=hps.train.lr_decay, last_epoch=epoch_str-2)

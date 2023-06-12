@@ -16,12 +16,16 @@ logger = logging
 
 def load_checkpoint(checkpoint_path, model, optimizer=None):
   assert os.path.isfile(checkpoint_path)
-  import ipdb;ipdb.set_trace()
+  # import ipdb;ipdb.set_trace()
   checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
   iteration = checkpoint_dict['iteration']
   learning_rate = checkpoint_dict['learning_rate']
   if optimizer is not None:
-    optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    try:
+      optimizer.load_state_dict(checkpoint_dict['optimizer'])
+    except ValueError:
+      logger.info("optimizer parameters mismatch")
+      optimizer.add_param_group({'params': checkpoint_dict['optimizer']['param_groups'][0]['params']})
   saved_state_dict = checkpoint_dict['model']
   if hasattr(model, 'module'):
     state_dict = model.module.state_dict()
