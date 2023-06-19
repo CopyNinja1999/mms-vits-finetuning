@@ -1,3 +1,13 @@
+# How to use:
+```
+- replace the language code in download_models.py with the language code you want to use
+e.g. ['eng','kor']
+- run download_models.py
+- perpare your dataset and modify the config file. rename it to config_ft.json
+- run train.py
+```
+
+
 # Making VITS efficient (wip)
 
 ## Goals
